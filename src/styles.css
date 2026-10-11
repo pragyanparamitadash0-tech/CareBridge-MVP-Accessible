@@ -1,0 +1,916 @@
+import { useEffect, useMemo, useState } from 'react';
+import { buildDemoState, LANGUAGE_OPTIONS } from './data/syntheticData';
+import { loadAppState, saveAppState } from './lib/storage';
+import { getDemoTranslation, getLanguageMeta, readAloud, translateTextWithBhasini } from './lib/bhasini';
+
+const defaultForm = {
+  name: '',
+  dob: '',
+  gender: 'Female',
+  bloodGroup: 'O+',
+  preferredLanguage: 'English',
+  phone: '',
+  email: '',
+  username: '',
+  password: '',
+  emergencyContact: '',
+  emergencyContactNumber: '',
+  allergies: '',
+  chronicConditions: '',
+  currentMedications: '',
+};
+
+const getPatientById = (patients, id) => patients.find((patient) => patient.id === id) || null;
+
+function App() {
+  const [appState, setAppState] = useState(() => loadAppState() || buildDemoState());
+  const [loginMode, setLoginMode] = useState('patient');
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [registrationForm, setRegistrationForm] = useState(defaultForm);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [toast, setToast] = useState('');
+  const [chatTopic, setChatTopic] = useState('Allergies');
+  const [chatInput, setChatInput] = useState('');
+  const [staffRecordForm, setStaffRecordForm] = useState({ patientId: '', allergies: '', chronicConditions: '', currentMedications: '', notes: '' });
+  const [sosTimer, setSosTimer] = useState(30);
+  const [sosActive, setSosActive] = useState(false);
+
+  const currentLanguageCode = appState.language || 'en';
+  const currentLanguage = getLanguageMeta(currentLanguageCode);
+
+  const currentUser = appState.currentUser;
+
+  useEffect(() => {
+    saveAppState(appState);
+  }, [appState]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (toast) setToast('');
+    }, 2800);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  useEffect(() => {
+    if (!sosActive) return;
+    const interval = setInterval(() => {
+      setSosTimer((previous) => {
+        if (previous <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return previous - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [sosActive]);
+
+  const patientList = appState.patients;
+  const staffList = appState.staff;
+  const providerList = appState.providers;
+  const appointmentList = appState.appointments;
+
+  const displayName = currentUser ? (currentUser.fullName || currentUser.name) : 'Guest';
+
+  const summary = useMemo(() => {
+    const patients = appState.patients.length;
+    const pendingAppts = appState.appointments.filter((apt) => apt.status === 'Pending').length;
+    const pendingAccess = appState.medicalCardRequests.filter((request) => request.status === 'Pending').length;
+    return { patients, pendingAppts, pendingAccess };
+  }, [appState]);
+
+  const translations = {
+    en: {
+      patientTitle: 'Patient dashboard',
+      staffTitle: 'Care team dashboard',
+      greeting: 'Hello',
+      login: 'Log in',
+      register: 'Register',
+      demoNote: 'Demo authentication is enabled for prototype testing.',
+      noEmergency: 'No emergency service is connected yet.',
+      iAmSafe: 'I AM SAFE',
+      updateSuccessful: 'Update successful',
+      requestAccess: 'Request access',
+      readAloud: 'Read aloud',
+      viewRecords: 'View records',
+      appointments: 'Appointments',
+      chatbot: 'Medical research chat',
+      medicalCard: 'Medical card',
+      loginMode: 'Select access mode',
+    },
+    hi: {
+      patientTitle: 'रोगी डैशबोर्ड',
+      staffTitle: 'केयर टीम डैशबोर्ड',
+      greeting: 'नमस्ते',
+      login: 'लॉग इन',
+      register: 'रजिस्टर',
+      demoNote: 'प्रोटोटाइप परीक्षण के लिए डेमो प्रमाणीकरण सक्षम है।',
+      noEmergency: 'अभी कोई आपातकालीन सेवा जुड़ी नहीं है।',
+      iAmSafe: 'मैं सुरक्षित हूँ',
+      updateSuccessful: 'अपडेट सफल रहा',
+      requestAccess: 'पहुँच का अनुरोध करें',
+      readAloud: 'पढ़कर सुनाएँ',
+      viewRecords: 'रिकॉर्ड देखें',
+      appointments: 'अपॉइंटमेंट',
+      chatbot: 'चिकित्सा अनुसंधान चैट',
+      medicalCard: 'मेडिकल कार्ड',
+      loginMode: 'एक्सेस मोड चुनें',
+    },
+    bn: {
+      patientTitle: 'রোগীর ড্যাশবোর্ড',
+      staffTitle: 'কেয়ার টিম ড্যাশবোর্ড',
+      greeting: 'হ্যালো',
+      login: 'লগইন',
+      register: 'নিবন্ধন',
+      demoNote: 'প্রোটোটাইপ টেস্টিং-এর জন্য ডেমো অথেনটিকেশন সক্ষম।',
+      noEmergency: 'এখনও কোনও জরুরি সেবা সংযুক্ত নেই।',
+      iAmSafe: 'আমি নিরাপদ',
+      updateSuccessful: 'আপডেট সফল',
+      requestAccess: 'অ্যাক্সেসের জন্য অনুরোধ',
+      readAloud: 'শোনান',
+      viewRecords: 'রেকর্ড দেখুন',
+      appointments: 'অ্যাপয়েন্টমেন্ট',
+      chatbot: 'চিকিৎসা গবেষণা চ্যাট',
+      medicalCard: 'মেডিকেল কার্ড',
+      loginMode: 'অ্যাক্সেস মোড নির্বাচন করুন',
+    },
+    ta: {
+      patientTitle: 'நோயாளி டாஷ்போர்டு',
+      staffTitle: 'கேர் குழு டாஷ்போர்டு',
+      greeting: 'வணக்கம்',
+      login: 'உள்நுழை',
+      register: 'பதிவு',
+      demoNote: 'மாதிரி சோதனைக்காக டெமோ அங்கீகாரம் இயக்கப்பட்டுள்ளது.',
+      noEmergency: 'இதுவரை எந்த அவசர சேவையும் இணைக்கப்படவில்லை.',
+      iAmSafe: 'நான் பாதுகாப்பாக உள்ளேன்',
+      updateSuccessful: 'புதுப்பிப்பு வெற்றி',
+      requestAccess: 'அணுகல் கோரிக்கை',
+      readAloud: 'சத்தமாக வாசி',
+      viewRecords: 'பதிவுகளைப் பார்க்க',
+      appointments: 'சந்திப்புகள்',
+      chatbot: 'மருத்துவ ஆராய்ச்சி அரட்டை',
+      medicalCard: 'மருத்துவ அட்டை',
+      loginMode: 'அணுகல் பயன்முறையைத் தேர்வு',
+    },
+    te: {
+      patientTitle: 'రోగి డ్యాష్బోర్డ్',
+      staffTitle: 'కేర్ టీమ్ డ్యాష్బోర్డ్',
+      greeting: 'హలో',
+      login: 'లాగిన్',
+      register: 'నమోదు',
+      demoNote: 'ప్రోటోటైప్ పరీక్ష కోసం డెమో ధృవీకరణ ప్రారంభించబడింది.',
+      noEmergency: 'ఇంకా ఎటువంటి అత్యవసర సేవ కనెక్ట్ కాలేదు.',
+      iAmSafe: 'నేను సురక్షితంగా ఉన్నాను',
+      updateSuccessful: 'అప్‌డేట్ విజయవంతమైంది',
+      requestAccess: 'యాక్సెస్ అభ్యర్థన',
+      readAloud: 'చదివి వినిపించు',
+      viewRecords: 'రికార్డులు చూడండి',
+      appointments: 'అపాయింట్మెంట్లు',
+      chatbot: 'మెడికల్ రీసెర్చ్ చాట్',
+      medicalCard: 'మెడికల్ కార్డ్',
+      loginMode: 'యాక్సెస్ మోడ్ ఎంచుకోండి',
+    },
+  };
+
+  const t = translations[currentLanguageCode] || translations.en;
+
+  const handleLogin = (event) => {
+    event.preventDefault();
+
+    const patientMatch = appState.patients.find(
+      (patient) => patient.username === loginForm.username && patient.password === loginForm.password,
+    );
+
+    if (patientMatch) {
+      setAppState((previous) => ({ ...previous, currentUser: patientMatch }));
+      setToast('Login successful');
+      setActiveTab('overview');
+      return;
+    }
+
+    const staffMatch = appState.staff.find(
+      (member) => member.username === loginForm.username && member.password === loginForm.password,
+    );
+
+    if (staffMatch) {
+      setAppState((previous) => ({ ...previous, currentUser: staffMatch }));
+      setToast('Login successful');
+      setActiveTab('overview');
+      return;
+    }
+
+    setToast('Invalid username or password');
+  };
+
+  const handleRegistration = (event) => {
+    event.preventDefault();
+    const patient = {
+      id: `PATIENT_${Date.now()}`,
+      fullName: registrationForm.name,
+      dob: registrationForm.dob,
+      age: new Date().getFullYear() - new Date(registrationForm.dob).getFullYear(),
+      gender: registrationForm.gender,
+      bloodGroup: registrationForm.bloodGroup,
+      preferredLanguage: registrationForm.preferredLanguage,
+      phone: registrationForm.phone,
+      email: registrationForm.email,
+      username: registrationForm.username,
+      password: registrationForm.password,
+      emergencyContact: registrationForm.emergencyContact,
+      emergencyContactNumber: registrationForm.emergencyContactNumber,
+      allergies: registrationForm.allergies ? registrationForm.allergies.split(',').map((entry) => entry.trim()).filter(Boolean) : [],
+      chronicConditions: registrationForm.chronicConditions ? registrationForm.chronicConditions.split(',').map((entry) => entry.trim()).filter(Boolean) : [],
+      currentMedications: registrationForm.currentMedications ? registrationForm.currentMedications.split(',').map((entry) => entry.trim()).filter(Boolean) : [],
+      pastMedicalHistory: 'New profile created in prototype',
+      vaccinationHistory: ['Demo vaccination record pending verification'],
+      recentTests: [],
+      medicalCard: {
+        id: `MC-${Math.floor(Math.random() * 9000 + 1000)}`,
+        status: 'Active',
+        consentToShareRecords: false,
+      },
+      isDemo: false,
+    };
+
+    setAppState((previous) => ({
+      ...previous,
+      patients: [patient, ...previous.patients],
+      currentUser: patient,
+    }));
+    setToast('Registration successful. Your medical card is ready.');
+    setRegistrationForm(defaultForm);
+    setActiveTab('overview');
+  };
+
+  const handleRequestCardAccess = () => {
+    if (!currentUser || currentUser.role) return;
+    const request = {
+      id: `REQ-${Date.now()}`,
+      patientId: currentUser.id,
+      providerId: 'PROVIDER_001',
+      status: 'Pending',
+      requestType: 'Medical card access request',
+      requestedAt: new Date().toISOString(),
+    };
+
+    setAppState((previous) => ({
+      ...previous,
+      medicalCardRequests: [request, ...previous.medicalCardRequests],
+    }));
+    setToast('Access request submitted');
+  };
+
+  const handlePatientUpdate = (event) => {
+    event.preventDefault();
+    const patient = getPatientById(appState.patients, staffRecordForm.patientId);
+    if (!patient) {
+      setToast('Select a patient');
+      return;
+    }
+
+    setAppState((previous) => ({
+      ...previous,
+      patients: previous.patients.map((entry) => {
+        if (entry.id !== patient.id) return entry;
+        return {
+          ...entry,
+          allergies: staffRecordForm.allergies ? staffRecordForm.allergies.split(',').map((value) => value.trim()).filter(Boolean) : entry.allergies,
+          chronicConditions: staffRecordForm.chronicConditions ? staffRecordForm.chronicConditions.split(',').map((value) => value.trim()).filter(Boolean) : entry.chronicConditions,
+          currentMedications: staffRecordForm.currentMedications ? staffRecordForm.currentMedications.split(',').map((value) => value.trim()).filter(Boolean) : entry.currentMedications,
+          pastMedicalHistory: staffRecordForm.notes || entry.pastMedicalHistory,
+          medicalCard: {
+            ...entry.medicalCard,
+            lastUpdatedAt: new Date().toISOString(),
+          },
+        };
+      }),
+    }));
+    setToast('Update successful');
+    setStaffRecordForm({
+      patientId: '',
+      allergies: '',
+      chronicConditions: '',
+      currentMedications: '',
+      notes: '',
+    });
+  };
+
+  const handleSos = () => {
+    if (!currentUser) return;
+
+    const alert = {
+      id: `SOS-${Date.now()}`,
+      patientId: currentUser.id,
+      patientName: currentUser.fullName || currentUser.name,
+      createdAt: new Date().toISOString(),
+      status: 'Active',
+      message: 'Patient activated SOS locally. No emergency service connected yet.',
+    };
+
+    setSosActive(true);
+    setSosTimer(30);
+    setAppState((previous) => ({
+      ...previous,
+      sosAlerts: [alert, ...previous.sosAlerts],
+    }));
+    setToast('SOS activated locally. No emergency service connected yet.');
+  };
+
+  const handleSafe = () => {
+    setSosActive(false);
+    setSosTimer(30);
+    setAppState((previous) => ({
+      ...previous,
+      sosAlerts: previous.sosAlerts.map((alert) => ({
+        ...alert,
+        status: alert.patientId === currentUser?.id ? 'Resolved' : alert.status,
+      })),
+    }));
+    setToast('Local alert cleared. I AM SAFE.');
+  };
+
+  const handleChatSubmit = async (event) => {
+    event.preventDefault();
+    if (!chatInput.trim()) return;
+
+    const topic = chatTopic || 'Allergies';
+    const selectedTopic = CHATBOT_TOPICS.find((entry) => entry.topic === topic) || CHATBOT_TOPICS[0];
+    const reply = `${selectedTopic.response} Disclaimer: ${selectedTopic.disclaimer} The chatbot does not replace professional medical care.`;
+
+    setAppState((previous) => ({
+      ...previous,
+      chatHistory: [
+        ...previous.chatHistory,
+        { id: Date.now(), role: 'user', text: chatInput, topic },
+        { id: Date.now() + 1, role: 'bot', text: reply, topic },
+      ],
+    }));
+
+    const translated = await translateTextWithBhasini({
+      text: reply,
+      sourceLanguage: 'en',
+      targetLanguage: currentLanguageCode,
+    });
+
+    if (currentLanguageCode !== 'en') {
+      const translatedReply = translated.translatedText || reply;
+      setAppState((previous) => ({
+        ...previous,
+        chatHistory: [
+          ...previous.chatHistory,
+          { id: Date.now() + 2, role: 'bot', text: translatedReply, topic, translated: true },
+        ],
+      }));
+    }
+
+    setChatInput('');
+  };
+
+  const handleReadAloud = (text) => {
+    const spoken = readAloud(text, currentLanguageCode);
+    if (!spoken) {
+      setToast('Speech synthesis is unavailable in this browser.');
+    }
+  };
+
+  const currentUserRecord = currentUser && 'fullName' in currentUser
+    ? currentUser
+    : appState.patients.find((patient) => patient.username === loginForm.username) || null;
+
+  const visibleCards = currentUser && currentUser.role ? appState.patients.filter((patient) => patient.medicalCard?.status === 'Active') : appState.patients;
+
+  return (
+    <div className="app-shell" style={{ fontSize: `${1 * appState.textScale}rem` }}>
+      <div className="top-banner">
+        <div>
+          <p className="eyebrow">CareBridge</p>
+          <h1>{currentUser ? `${t.greeting}, ${displayName}` : 'CareBridge Accessible MVP'}</h1>
+        </div>
+        <div className="header-actions">
+          <label className="segmented-control">
+            <span>Text</span>
+            <input
+              type="range"
+              min="0.9"
+              max="1.4"
+              step="0.05"
+              value={appState.textScale}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                setAppState((previous) => ({ ...previous, textScale: value }));
+              }}
+              aria-label="Adjust text size"
+            />
+          </label>
+          <select
+            value={currentLanguageCode}
+            onChange={(event) => {
+              const value = event.target.value;
+              setAppState((previous) => ({ ...previous, language: value }));
+            }}
+            aria-label="Choose language"
+          >
+            {LANGUAGE_OPTIONS.map((option) => (
+              <option key={option.code} value={option.code}>
+                {option.nativeLabel}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {!currentUser ? (
+        <div className="auth-page">
+          <div className="auth-card">
+            <div className="brand-block">
+              <div className="brand-icon">+</div>
+              <div>
+                <p className="eyebrow">Accessible healthcare coordination</p>
+                <h2>CareBridge</h2>
+              </div>
+            </div>
+
+            <div className="role-selector" aria-label="Authentication mode">
+              <button type="button" className={loginMode === 'patient' ? 'selected' : ''} onClick={() => setLoginMode('patient')}>
+                Patient
+              </button>
+              <button type="button" className={loginMode === 'staff' ? 'selected' : ''} onClick={() => setLoginMode('staff')}>
+                Staff
+              </button>
+            </div>
+
+            <form onSubmit={handleLogin} className="auth-form">
+              <label>
+                Username
+                <input value={loginForm.username} onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })} placeholder="Enter username" />
+              </label>
+              <label>
+                Password
+                <input type="password" value={loginForm.password} onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })} placeholder="Enter password" />
+              </label>
+              <div className="demo-banner" aria-live="polite">
+                <strong>{t.demoNote}</strong>
+              </div>
+              <button type="submit" className="primary-btn">{t.login}</button>
+            </form>
+
+            <div className="divider"><span>or</span></div>
+
+            <form onSubmit={handleRegistration} className="registration-form">
+              <h3>Create a fresh account</h3>
+              <div className="registration-grid">
+                <label>
+                  Full Name
+                  <input value={registrationForm.name} onChange={(event) => setRegistrationForm({ ...registrationForm, name: event.target.value })} required />
+                </label>
+                <label>
+                  Date of birth
+                  <input type="date" value={registrationForm.dob} onChange={(event) => setRegistrationForm({ ...registrationForm, dob: event.target.value })} required />
+                </label>
+                <label>
+                  Gender
+                  <select value={registrationForm.gender} onChange={(event) => setRegistrationForm({ ...registrationForm, gender: event.target.value })}>
+                    <option>Female</option>
+                    <option>Male</option>
+                    <option>Prefer not to say</option>
+                  </select>
+                </label>
+                <label>
+                  Blood group
+                  <select value={registrationForm.bloodGroup} onChange={(event) => setRegistrationForm({ ...registrationForm, bloodGroup: event.target.value })}>
+                    <option>O+</option>
+                    <option>O-</option>
+                    <option>A+</option>
+                    <option>A-</option>
+                    <option>B+</option>
+                    <option>B-</option>
+                    <option>AB+</option>
+                    <option>AB-</option>
+                  </select>
+                </label>
+                <label>
+                  Preferred language
+                  <select value={registrationForm.preferredLanguage} onChange={(event) => setRegistrationForm({ ...registrationForm, preferredLanguage: event.target.value })}>
+                    {LANGUAGE_OPTIONS.map((language) => (
+                      <option key={language.code} value={language.label}>{language.nativeLabel}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Phone
+                  <input value={registrationForm.phone} onChange={(event) => setRegistrationForm({ ...registrationForm, phone: event.target.value })} required />
+                </label>
+                <label>
+                  Email
+                  <input type="email" value={registrationForm.email} onChange={(event) => setRegistrationForm({ ...registrationForm, email: event.target.value })} required />
+                </label>
+                <label>
+                  Username
+                  <input value={registrationForm.username} onChange={(event) => setRegistrationForm({ ...registrationForm, username: event.target.value })} required />
+                </label>
+                <label>
+                  Password
+                  <input type="password" value={registrationForm.password} onChange={(event) => setRegistrationForm({ ...registrationForm, password: event.target.value })} required />
+                </label>
+                <label>
+                  Emergency contact
+                  <input value={registrationForm.emergencyContact} onChange={(event) => setRegistrationForm({ ...registrationForm, emergencyContact: event.target.value })} />
+                </label>
+                <label>
+                  Emergency contact number
+                  <input value={registrationForm.emergencyContactNumber} onChange={(event) => setRegistrationForm({ ...registrationForm, emergencyContactNumber: event.target.value })} />
+                </label>
+                <label>
+                  Allergies (comma separated)
+                  <input value={registrationForm.allergies} onChange={(event) => setRegistrationForm({ ...registrationForm, allergies: event.target.value })} />
+                </label>
+                <label>
+                  Chronic conditions (comma separated)
+                  <input value={registrationForm.chronicConditions} onChange={(event) => setRegistrationForm({ ...registrationForm, chronicConditions: event.target.value })} />
+                </label>
+                <label>
+                  Current medications (comma separated)
+                  <input value={registrationForm.currentMedications} onChange={(event) => setRegistrationForm({ ...registrationForm, currentMedications: event.target.value })} />
+                </label>
+              </div>
+              <div className="demo-banner warning">
+                <strong>Demo authentication:</strong> Registration does not require real OTP or email verification in this prototype.
+              </div>
+              <button type="submit" className="primary-btn">Create account</button>
+            </form>
+          </div>
+        </div>
+      ) : (
+        <div className="dashboard-shell">
+          <div className="topbar">
+            <div>
+              <p className="eyebrow">{currentUser.role ? 'Healthcare staff' : 'Patient'}</p>
+              <h2>{currentUser.role ? currentUser.name : currentUser.fullName}</h2>
+            </div>
+            <div className="toolbar">
+              <button className="soft-btn" onClick={() => setActiveTab('overview')}>Overview</button>
+              {currentUser.role ? (
+                <>
+                  <button className="soft-btn" onClick={() => setActiveTab('records')}>Records</button>
+                  <button className="soft-btn" onClick={() => setActiveTab('appointments')}>Appointments</button>
+                </>
+              ) : (
+                <>
+                  <button className="soft-btn" onClick={() => setActiveTab('records')}>{t.viewRecords}</button>
+                  <button className="soft-btn" onClick={() => setActiveTab('appointments')}>{t.appointments}</button>
+                  <button className="soft-btn" onClick={() => setActiveTab('chat')}>{t.chatbot}</button>
+                </>
+              )}
+              <button className="danger-btn" onClick={handleSos}>SOS</button>
+              <button className="ghost-btn" onClick={() => setAppState((previous) => ({ ...previous, currentUser: null }))}>Log out</button>
+            </div>
+          </div>
+
+          {sosActive && (
+            <div className="sos-overlay" aria-live="assertive">
+              <div className="sos-card">
+                <p className="eyebrow">Emergency state</p>
+                <h2>Local SOS alert</h2>
+                <div className="sos-timer">{sosTimer}s</div>
+                <p>{t.noEmergency}</p>
+                <button className="primary-btn safe-btn" onClick={handleSafe}>{t.iAmSafe}</button>
+              </div>
+            </div>
+          )}
+
+          {currentUser.role ? (
+            <div className="dashboard-grid">
+              <aside className="left-panel">
+                <div className="profile-pill">
+                  <div className="avatar">{currentUser.name.charAt(0)}</div>
+                  <div>
+                    <strong>{currentUser.name}</strong>
+                    <small>{currentUser.role}</small>
+                  </div>
+                </div>
+
+                <div className="summary-box">
+                  <h3>Facility</h3>
+                  <p>{providerList.find((provider) => provider.id === currentUser.providerId)?.name}</p>
+                </div>
+
+                <div className="summary-box">
+                  <h3>Permissions</h3>
+                  <ul>
+                    {currentUser.permissions?.map((perm) => <li key={perm}>{perm}</li>)}
+                  </ul>
+                </div>
+              </aside>
+
+              <main className="main-panel">
+                <div className="summary-grid">
+                  <article className="card">
+                    <h3>Active patients</h3>
+                    <p>{summary.patients}</p>
+                  </article>
+                  <article className="card">
+                    <h3>Pending appointments</h3>
+                    <p>{summary.pendingAppts}</p>
+                  </article>
+                  <article className="card">
+                    <h3>Medical card requests</h3>
+                    <p>{summary.pendingAccess}</p>
+                  </article>
+                </div>
+
+                {activeTab === 'records' && (
+                  <div className="card staff-card">
+                    <h3>Update patient record</h3>
+                    <form onSubmit={handlePatientUpdate} className="provider-form">
+                      <label>
+                        Patient
+                        <select value={staffRecordForm.patientId} onChange={(event) => setStaffRecordForm({ ...staffRecordForm, patientId: event.target.value })}>
+                          <option value="">Choose a patient</option>
+                          {appState.patients.map((patient) => (
+                            <option key={patient.id} value={patient.id}>{patient.fullName}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Allergies
+                        <input value={staffRecordForm.allergies} onChange={(event) => setStaffRecordForm({ ...staffRecordForm, allergies: event.target.value })} placeholder="Penicillin, peanuts" />
+                      </label>
+                      <label>
+                        Chronic conditions
+                        <input value={staffRecordForm.chronicConditions} onChange={(event) => setStaffRecordForm({ ...staffRecordForm, chronicConditions: event.target.value })} placeholder="Asthma, hypertension" />
+                      </label>
+                      <label>
+                        Current medications
+                        <input value={staffRecordForm.currentMedications} onChange={(event) => setStaffRecordForm({ ...staffRecordForm, currentMedications: event.target.value })} placeholder="Salbutamol inhaler, metformin" />
+                      </label>
+                      <label>
+                        Clinical note
+                        <textarea value={staffRecordForm.notes} onChange={(event) => setStaffRecordForm({ ...staffRecordForm, notes: event.target.value })} rows="4" placeholder="Add observation or follow-up plan" />
+                      </label>
+                      <button type="submit" className="primary-btn">Update record</button>
+                    </form>
+                  </div>
+                )}
+
+                {activeTab === 'appointments' && (
+                  <div className="card staff-card">
+                    <h3>Appointment approvals</h3>
+                    <ul className="request-list">
+                      {appointmentList.map((appointment) => {
+                        const patient = getPatientById(appState.patients, appointment.patientId);
+                        return (
+                          <li key={appointment.id}>
+                            <strong>{patient?.fullName}</strong>
+                            <span>{appointment.service}</span>
+                            <span>{new Date(appointment.time).toLocaleString()}</span>
+                            <span>Status: {appointment.status}</span>
+                            <button className="soft-btn" onClick={() => {
+                              setAppState((previous) => ({
+                                ...previous,
+                                appointments: previous.appointments.map((existing) => existing.id === appointment.id ? { ...existing, status: 'Approved' } : existing),
+                              }));
+                              setToast('Appointment approved');
+                            }}>
+                              Approve
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+
+                {activeTab === 'overview' && (
+                  <div className="card staff-card">
+                    <h3>Pending patient access requests</h3>
+                    <ul className="request-list">
+                      {appState.medicalCardRequests.map((request) => {
+                        const patient = getPatientById(appState.patients, request.patientId);
+                        return (
+                          <li key={request.id}>
+                            <strong>{patient?.fullName}</strong>
+                            <span>{request.requestType}</span>
+                            <span>Status: {request.status}</span>
+                            <button className="soft-btn" onClick={() => {
+                              setAppState((previous) => ({
+                                ...previous,
+                                medicalCardRequests: previous.medicalCardRequests.map((entry) => entry.id === request.id ? { ...entry, status: 'Approved' } : entry),
+                                patients: previous.patients.map((entry) => entry.id === request.patientId ? { ...entry, medicalCard: { ...entry.medicalCard, consentToShareRecords: true } } : entry),
+                              }));
+                              setToast('Access approved');
+                            }}>
+                              Approve request
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+
+                {appState.sosAlerts.length > 0 && (
+                  <div className="card staff-card">
+                    <h3>SOS alerts</h3>
+                    <ul className="request-list">
+                      {appState.sosAlerts.map((alert) => (
+                        <li key={alert.id}>
+                          <strong>{alert.patientName}</strong>
+                          <span>{alert.message}</span>
+                          <span>{new Date(alert.createdAt).toLocaleString()}</span>
+                          <span>Status: {alert.status}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </main>
+            </div>
+          ) : (
+            <div className="dashboard-grid">
+              <aside className="left-panel">
+                <div className="profile-pill">
+                  <div className="avatar">{currentUser.fullName.charAt(0)}</div>
+                  <div>
+                    <strong>{currentUser.fullName}</strong>
+                    <small>Patient profile</small>
+                  </div>
+                </div>
+
+                <nav className="side-nav">
+                  <button className={activeTab === 'overview' ? 'active' : ''} onClick={() => setActiveTab('overview')}>Overview</button>
+                  <button className={activeTab === 'records' ? 'active' : ''} onClick={() => setActiveTab('records')}>{t.viewRecords}</button>
+                  <button className={activeTab === 'appointments' ? 'active' : ''} onClick={() => setActiveTab('appointments')}>{t.appointments}</button>
+                  <button className={activeTab === 'chat' ? 'active' : ''} onClick={() => setActiveTab('chat')}>{t.chatbot}</button>
+                </nav>
+              </aside>
+
+              <main className="main-panel">
+                {activeTab === 'overview' && (
+                  <>
+                    <div className="summary-grid">
+                      <article className="card">
+                        <h3>Medical card</h3>
+                        <p>{currentUser.medicalCard?.id}</p>
+                        <span className="status-badge success">{currentUser.medicalCard?.status}</span>
+                      </article>
+                      <article className="card">
+                        <h3>Allergies</h3>
+                        <p>{currentUser.allergies?.length ? currentUser.allergies.join(', ') : 'No known allergies reported'}</p>
+                      </article>
+                      <article className="card">
+                        <h3>Current meds</h3>
+                        <p>{currentUser.currentMedications?.length ? currentUser.currentMedications.join(', ') : 'No medications reported'}</p>
+                      </article>
+                    </div>
+
+                    <div className="card">
+                      <div className="card-head">
+                        <h3>{t.medicalCard}</h3>
+                        <button className="soft-btn" onClick={() => handleReadAloud(`Medical card for ${currentUser.fullName}. Allergies: ${currentUser.allergies?.join(', ') || 'none'}. Chronic conditions: ${currentUser.chronicConditions?.join(', ') || 'none'}. Current medications: ${currentUser.currentMedications?.join(', ') || 'none'}.`) }>
+                          {t.readAloud}
+                        </button>
+                      </div>
+                      <ul className="info-list">
+                        <li><strong>Blood group</strong><span>{currentUser.bloodGroup}</span></li>
+                        <li><strong>Preferred language</strong><span>{currentUser.preferredLanguage}</span></li>
+                        <li><strong>Emergency contact</strong><span>{currentUser.emergencyContact} ({currentUser.emergencyContactNumber})</span></li>
+                        <li><strong>Medical card consent</strong><span>{currentUser.medicalCard?.consentToShareRecords ? 'Authorized' : 'Pending approval'}</span></li>
+                      </ul>
+                      <div className="inline-actions">
+                        <button className="primary-btn" onClick={handleRequestCardAccess}>{t.requestAccess}</button>
+                        <button className="ghost-btn" onClick={() => setActiveTab('records')}>Update profile</button>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {activeTab === 'records' && (
+                  <div className="card">
+                    <h3>Manage your profile</h3>
+                    <form className="provider-form" onSubmit={(event) => {
+                      event.preventDefault();
+                      setAppState((previous) => ({
+                        ...previous,
+                        patients: previous.patients.map((patient) => patient.id === currentUser.id ? {
+                          ...patient,
+                          allergies: event.target.allergies.value ? event.target.allergies.value.split(',').map((value) => value.trim()).filter(Boolean) : patient.allergies,
+                          chronicConditions: event.target.chronicConditions.value ? event.target.chronicConditions.value.split(',').map((value) => value.trim()).filter(Boolean) : patient.chronicConditions,
+                          currentMedications: event.target.currentMedications.value ? event.target.currentMedications.value.split(',').map((value) => value.trim()).filter(Boolean) : patient.currentMedications,
+                          bloodGroup: event.target.bloodGroup.value,
+                          preferredLanguage: event.target.preferredLanguage.value,
+                        } : patient),
+                        currentUser: {
+                          ...currentUser,
+                          allergies: event.target.allergies.value ? event.target.allergies.value.split(',').map((value) => value.trim()).filter(Boolean) : currentUser.allergies,
+                          chronicConditions: event.target.chronicConditions.value ? event.target.chronicConditions.value.split(',').map((value) => value.trim()).filter(Boolean) : currentUser.chronicConditions,
+                          currentMedications: event.target.currentMedications.value ? event.target.currentMedications.value.split(',').map((value) => value.trim()).filter(Boolean) : currentUser.currentMedications,
+                          bloodGroup: event.target.bloodGroup.value,
+                          preferredLanguage: event.target.preferredLanguage.value,
+                        },
+                      }));
+                      setToast('Update successful');
+                    }}>
+                      <label>
+                        Allergies
+                        <input name="allergies" defaultValue={currentUser.allergies?.join(', ')} />
+                      </label>
+                      <label>
+                        Chronic conditions
+                        <input name="chronicConditions" defaultValue={currentUser.chronicConditions?.join(', ')} />
+                      </label>
+                      <label>
+                        Current medications
+                        <input name="currentMedications" defaultValue={currentUser.currentMedications?.join(', ')} />
+                      </label>
+                      <label>
+                        Blood group
+                        <select name="bloodGroup" defaultValue={currentUser.bloodGroup}>
+                          <option>O+</option>
+                          <option>O-</option>
+                          <option>A+</option>
+                          <option>A-</option>
+                          <option>B+</option>
+                          <option>B-</option>
+                          <option>AB+</option>
+                          <option>AB-</option>
+                        </select>
+                      </label>
+                      <label>
+                        Preferred language
+                        <select name="preferredLanguage" defaultValue={currentUser.preferredLanguage}>
+                          {LANGUAGE_OPTIONS.map((language) => (
+                            <option key={language.code} value={language.label}>{language.nativeLabel}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <button type="submit" className="primary-btn">Save changes</button>
+                    </form>
+                  </div>
+                )}
+
+                {activeTab === 'appointments' && (
+                  <div className="card">
+                    <h3>Appointment bookings</h3>
+                    <ul className="appointments-list">
+                      {appointmentList
+                        .filter((appointment) => appointment.patientId === currentUser.id)
+                        .map((appointment) => (
+                          <li key={appointment.id}>
+                            <strong>{appointment.service}</strong>
+                            <span>{appointment.status}</span>
+                            <span>{new Date(appointment.time).toLocaleString()}</span>
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                )}
+
+                {activeTab === 'chat' && (
+                  <div className="card">
+                    <h3>{t.chatbot}</h3>
+                    <div className="chat-box" aria-live="polite">
+                      {appState.chatHistory?.filter((message) => message.role === 'user' || message.role === 'bot').map((message) => (
+                        <div key={message.id} className={`chat-bubble ${message.role}`}>
+                          <strong>{message.role === 'user' ? 'You' : 'CareBridge AI'}</strong>
+                          <p>{message.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <form onSubmit={handleChatSubmit} className="history-form">
+                      <label>
+                        Select topic
+                        <select value={chatTopic} onChange={(event) => setChatTopic(event.target.value)}>
+                          {['Allergies', 'Blood Pressure', 'Vaccination', 'Diabetes Testing', 'Medication Safety'].map((topic) => (
+                            <option key={topic} value={topic}>{topic}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Ask a question
+                        <textarea value={chatInput} onChange={(event) => setChatInput(event.target.value)} rows="3" placeholder="Ask about symptoms, medications, or preventive care" />
+                      </label>
+                      <div className="chat-actions">
+                        <button type="submit" className="primary-btn">Ask</button>
+                        <button type="button" className="soft-btn" onClick={() => handleReadAloud(`Medical research note: ${chatInput || 'No question provided.'}`)}>
+                          {t.readAloud}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+              </main>
+            </div>
+          )}
+        </div>
+      )}
+
+      {toast && (
+        <div className="toast" aria-live="polite">
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
