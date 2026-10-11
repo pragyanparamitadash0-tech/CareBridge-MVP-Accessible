@@ -67,8 +67,7 @@ function App() {
   const [fontScale, setFontScale] = useState(1);
   const [sosTimer, setSosTimer] = useState(30);
   const [sosActive, setSosActive] = useState(false);
-  
-  // New allergies state
+
   const [newAllergyInput, setNewAllergyInput] = useState('');
   const [selectedHospital, setSelectedHospital] = useState('H1');
 
@@ -243,7 +242,7 @@ function App() {
                 <input
                   value={loginForm.username}
                   onChange={(event) => setLoginForm((previous) => ({ ...previous, username: event.target.value }))}
-                  placeholder={loginMode === 'patient' ? 'e.g., aisha_demo' : 'e.g., aditi_staff'}
+                  placeholder="Enter username"
                   aria-label="Username"
                 />
               </label>
@@ -254,36 +253,13 @@ function App() {
                   type="password"
                   value={loginForm.password}
                   onChange={(event) => setLoginForm((previous) => ({ ...previous, password: event.target.value }))}
-                  placeholder="Demo@123"
+                  placeholder="Enter password"
                   aria-label="Password"
                 />
               </label>
 
               <button className="primary-btn" type="submit">Log In</button>
             </form>
-
-            <div className="demo-credentials">
-              <h3>Demo Credentials</h3>
-              {loginMode === 'patient' ? (
-                <>
-                  <p><strong>Patients:</strong></p>
-                  <ul>
-                    <li>aisha_demo / Demo@123</li>
-                    <li>rohan_demo / Demo@123</li>
-                    <li>maya_demo / Demo@123</li>
-                  </ul>
-                </>
-              ) : (
-                <>
-                  <p><strong>Staff:</strong></p>
-                  <ul>
-                    <li>aditi_staff / Demo@123</li>
-                    <li>nisha_staff / Demo@123</li>
-                    <li>rohan_staff / Demo@123</li>
-                  </ul>
-                </>
-              )}
-            </div>
           </div>
         </div>
 
