@@ -1,35 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { buildDemoState, LANGUAGE_OPTIONS } from './data/syntheticData';
 import { loadAppState, saveAppState } from './lib/storage';
-import { getDemoTranslation, getLanguageMeta, readAloud, translateTextWithBhasini } from './lib/bhasini';
-
-const emptyMedicalCard = {
-  allergies: '',
-  chronicConditions: '',
-  currentMedications: '',
-};
-
-const defaultRegistrationForm = {
-  name: '',
-  dob: '',
-  gender: 'Female',
-  bloodGroup: 'O+',
-  preferredLanguage: 'English',
-  phone: '',
-  email: '',
-  username: '',
-  password: '',
-  emergencyContact: '',
-  emergencyContactNumber: '',
-  allergies: '',
-  chronicConditions: '',
-  currentMedications: '',
-};
-
-const formatList = (value) => {
-  if (!value) return 'None recorded';
-  return Array.isArray(value) ? value.join(', ') : value;
-};
+import { getDemoTranslation, getLanguageMeta, readAloud } from './lib/bhasini';
 
 const formatDate = (value) => {
   if (!value) return 'Not available';
@@ -40,22 +12,67 @@ const formatDate = (value) => {
 
 const getPatientById = (patients, patientId) => patients.find((patient) => patient.id === patientId) || null;
 
+// Mock hospital/clinic data
+const HOSPITALS = [
+  {
+    id: 'H1',
+    name: 'City Medical Center',
+    doctors: [
+      { id: 'D1', name: 'Dr. Aditi Nair', specialty: 'Family Medicine' },
+      { id: 'D2', name: 'Dr. Rohan Iyer', specialty: 'Cardiology' },
+    ],
+    vaccinations: [
+      { id: 'V1', name: 'COVID-19 (1st dose)', date: '2024-03-15' },
+      { id: 'V2', name: 'Influenza', date: '2024-09-20' },
+    ],
+    tests: [
+      { id: 'T1', name: 'Blood Test', date: '2024-10-01', result: 'Normal' },
+      { id: 'T2', name: 'ECG', date: '2024-09-10', result: 'Normal' },
+    ],
+  },
+  {
+    id: 'H2',
+    name: 'Hope Hospital',
+    doctors: [
+      { id: 'D3', name: 'Dr. Sanjay Patel', specialty: 'Pediatrics' },
+    ],
+    vaccinations: [
+      { id: 'V3', name: 'Polio', date: '2024-04-10' },
+    ],
+    tests: [
+      { id: 'T3', name: 'Thyroid Panel', date: '2024-08-15', result: 'Normal' },
+    ],
+  },
+  {
+    id: 'H3',
+    name: 'Elite Care Clinic',
+    doctors: [
+      { id: 'D4', name: 'Dr. Priya Sharma', specialty: 'Dermatology' },
+    ],
+    vaccinations: [
+      { id: 'V4', name: 'Tetanus', date: '2024-02-05' },
+    ],
+    tests: [
+      { id: 'T4', name: 'Skin Biopsy', date: '2024-07-20', result: 'Benign' },
+    ],
+  },
+];
+
 function App() {
   const [appState, setAppState] = useState(() => loadAppState() || buildDemoState());
   const [loginMode, setLoginMode] = useState('patient');
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
-  const [registrationForm, setRegistrationForm] = useState(defaultRegistrationForm);
   const [activeTab, setActiveTab] = useState('overview');
   const [toast, setToast] = useState('');
-  const [chatInput, setChatInput] = useState('');
-  const [chatTopic, setChatTopic] = useState('Allergies');
-  const [staffRecordForm, setStaffRecordForm] = useState({ patientId: '', allergies: '', chronicConditions: '', currentMedications: '', notes: '' });
   const [fontScale, setFontScale] = useState(1);
   const [sosTimer, setSosTimer] = useState(30);
   const [sosActive, setSosActive] = useState(false);
+  
+  // New allergies state
+  const [newAllergyInput, setNewAllergyInput] = useState('');
+  const [selectedHospital, setSelectedHospital] = useState('H1');
 
   const currentLanguageCode = appState.language || 'en';
-  const currentLanguage = getLanguageMeta(currentLanguageCode);
   const currentUser = appState.currentUser;
 
   useEffect(() => {
@@ -75,13 +92,7 @@ function App() {
   useEffect(() => {
     if (!sosActive) return undefined;
     const interval = setInterval(() => {
-      setSosTimer((previous) => {
-        if (previous <= 1) {
-          clearInterval(interval);
-          return 0;
-        }
-        return previous - 1;
-      });
+      setSosTimer((previous) => (previous <= 1 ? 0 : previous - 1));
     }, 1000);
     return () => clearInterval(interval);
   }, [sosActive]);
@@ -94,14 +105,13 @@ function App() {
 
   const displayName = currentUser ? (currentUser.fullName || currentUser.name || 'Guest') : 'Guest';
 
-  const summary = useMemo(() => {
-    const activePatients = patientList.length;
-    const pendingAppointments = appointmentList.filter((appointment) => appointment.status === 'Pending').length;
-    const pendingAccess = requestList.filter((request) => request.status === 'Pending').length;
-    return { activePatients, pendingAppointments, pendingAccess };
-  }, [appointmentList, patientList.length, requestList]);
-
   const t = (key, fallback) => getDemoTranslation(key, currentLanguageCode) || fallback || key;
+
+  const handleLogout = () => {
+    setAppState((previous) => ({ ...previous, currentUser: null }));
+    setToast('Logged out successfully');
+    setActiveTab('overview');
+  };
 
   const handleLogin = (event) => {
     event.preventDefault();
@@ -131,152 +141,41 @@ function App() {
     setToast('Invalid login credentials');
   };
 
-  const handleRegistration = (event) => {
-    event.preventDefault();
-
-    const cleanedUsername = registrationForm.username.trim();
-    const cleanedPassword = registrationForm.password.trim();
-
-    if (!cleanedUsername || !cleanedPassword) {
-      setToast('Create a username and password to continue');
+  const handleAddAllergy = () => {
+    const trimmed = newAllergyInput.trim();
+    if (!trimmed) {
+      setToast('Please enter an allergy');
       return;
     }
 
-    const usernameExists = [...patientList, ...staffList].some((account) => account.username === cleanedUsername);
-    if (usernameExists) {
-      setToast('That username is already in use');
+    const allergies = currentUser.allergies || [];
+    if (allergies.includes(trimmed)) {
+      setToast('This allergy is already added');
       return;
     }
 
-    const newPatient = {
-      id: `PATIENT_${Date.now()}`,
-      fullName: registrationForm.name.trim() || 'New patient',
-      dob: registrationForm.dob,
-      gender: registrationForm.gender,
-      bloodGroup: registrationForm.bloodGroup,
-      preferredLanguage: registrationForm.preferredLanguage,
-      phone: registrationForm.phone,
-      email: registrationForm.email,
-      username: cleanedUsername,
-      password: cleanedPassword,
-      emergencyContact: registrationForm.emergencyContact,
-      emergencyContactNumber: registrationForm.emergencyContactNumber,
-      allergies: registrationForm.allergies ? registrationForm.allergies.split(',').map((item) => item.trim()).filter(Boolean) : [],
-      chronicConditions: registrationForm.chronicConditions ? registrationForm.chronicConditions.split(',').map((item) => item.trim()).filter(Boolean) : [],
-      currentMedications: registrationForm.currentMedications ? registrationForm.currentMedications.split(',').map((item) => item.trim()).filter(Boolean) : [],
-      pastMedicalHistory: 'Newly registered patient',
-      vaccinationHistory: ['Demo registration completed'],
-      recentTests: [],
-      medicalCard: {
-        id: `MC-${Date.now()}`,
-        status: 'Active',
-        consentToShareRecords: true,
-        accessRequests: [],
-      },
-      isDemo: true,
-      role: 'patient',
-    };
-
+    const updated = { ...currentUser, allergies: [...allergies, trimmed] };
     setAppState((previous) => ({
       ...previous,
-      patients: [...previous.patients, newPatient],
-      currentUser: newPatient,
+      currentUser: updated,
+      patients: previous.patients.map((p) => (p.id === currentUser.id ? updated : p)),
     }));
 
-    setRegistrationForm(defaultRegistrationForm);
-    setLoginMode('patient');
-    setActiveTab('overview');
-    setToast('Registration successful');
+    setNewAllergyInput('');
+    setToast(`Allergy "${trimmed}" added`);
   };
 
-  const handlePatientUpdate = (event) => {
-    event.preventDefault();
-    if (!currentUser || currentUser.role !== 'patient') return;
-
-    const updatedPatient = {
+  const handleRemoveAllergy = (allergyToRemove) => {
+    const updated = {
       ...currentUser,
-      allergies: currentUser.allergies || [],
-      chronicConditions: currentUser.chronicConditions || [],
-      currentMedications: currentUser.currentMedications || [],
-      medicalCard: {
-        ...(currentUser.medicalCard || {}),
-        consentToShareRecords: true,
-      },
+      allergies: (currentUser.allergies || []).filter((a) => a !== allergyToRemove),
     };
-
     setAppState((previous) => ({
       ...previous,
-      patients: previous.patients.map((patient) => (patient.id === currentUser.id ? updatedPatient : patient)),
-      currentUser: updatedPatient,
+      currentUser: updated,
+      patients: previous.patients.map((p) => (p.id === currentUser.id ? updated : p)),
     }));
-    setToast(t('updateSuccessful', 'Update successful'));
-  };
-
-  const handleStaffRecordUpdate = (event) => {
-    event.preventDefault();
-    if (!currentUser || currentUser.role !== 'staff') return;
-
-    const selectedPatient = getPatientById(patientList, staffRecordForm.patientId);
-    if (!selectedPatient) {
-      setToast('Select a patient first');
-      return;
-    }
-
-    const updatedPatient = {
-      ...selectedPatient,
-      allergies: staffRecordForm.allergies ? staffRecordForm.allergies.split(',').map((item) => item.trim()).filter(Boolean) : selectedPatient.allergies || [],
-      chronicConditions: staffRecordForm.chronicConditions ? staffRecordForm.chronicConditions.split(',').map((item) => item.trim()).filter(Boolean) : selectedPatient.chronicConditions || [],
-      currentMedications: staffRecordForm.currentMedications ? staffRecordForm.currentMedications.split(',').map((item) => item.trim()).filter(Boolean) : selectedPatient.currentMedications || [],
-      pastMedicalHistory: staffRecordForm.notes || selectedPatient.pastMedicalHistory || '',
-      medicalCard: {
-        ...(selectedPatient.medicalCard || {}),
-        status: 'Active',
-      },
-    };
-
-    setAppState((previous) => ({
-      ...previous,
-      patients: previous.patients.map((patient) => (patient.id === updatedPatient.id ? updatedPatient : patient)),
-      currentUser: previous.currentUser && previous.currentUser.id === currentUser.id ? { ...previous.currentUser } : previous.currentUser,
-    }));
-
-    setStaffRecordForm((previous) => ({ ...previous, allergies: '', chronicConditions: '', currentMedications: '', notes: '' }));
-    setToast(t('updateSuccessful', 'Update successful'));
-  };
-
-  const handleAccessRequest = () => {
-    if (!currentUser || currentUser.role !== 'patient') return;
-
-    const requestPayload = {
-      id: `REQUEST_${Date.now()}`,
-      patientId: currentUser.id,
-      patientName: currentUser.fullName,
-      requestedAt: new Date().toISOString(),
-      requestedCardId: currentUser.medicalCard?.id || 'MC-NEW',
-      status: 'Pending',
-    };
-
-    setAppState((previous) => ({
-      ...previous,
-      medicalCardRequests: [requestPayload, ...previous.medicalCardRequests],
-      patients: previous.patients.map((patient) =>
-        patient.id === currentUser.id
-          ? { ...patient, medicalCard: { ...(patient.medicalCard || {}), accessRequests: [requestPayload.id, ...(patient.medicalCard?.accessRequests || [])] } }
-          : patient,
-      ),
-    }));
-
-    setToast('Access request submitted');
-  };
-
-  const handleApproveRequest = (requestId) => {
-    setAppState((previous) => ({
-      ...previous,
-      medicalCardRequests: previous.medicalCardRequests.map((request) =>
-        request.id === requestId ? { ...request, status: 'Approved' } : request,
-      ),
-    }));
-    setToast('Access approved');
+    setToast(`Allergy "${allergyToRemove}" removed`);
   };
 
   const handleSosActivate = () => {
@@ -304,33 +203,6 @@ function App() {
     setToast('Local SOS alert cleared');
   };
 
-  const handleChatSubmit = (event) => {
-    event.preventDefault();
-    if (!chatInput.trim()) return;
-
-    const userMessage = chatInput.trim();
-    const response = `${t('chatbot', 'Medical research chat')}: Based on the current patient detail, consult a licensed clinician before acting on any advice. For ${chatTopic.toLowerCase()}, evidence shows that symptom monitoring, medication review, and clinician follow-up remain important. This demo information does not replace professional medical care.`;
-
-    setAppState((previous) => ({
-      ...previous,
-      chatHistory: [
-        ...(previous.chatHistory || []),
-        { id: Date.now(), speaker: 'user', text: userMessage },
-        { id: Date.now() + 1, speaker: 'bot', text: response },
-      ],
-    }));
-
-    setChatInput('');
-  };
-
-  const currentPatient = currentUser && currentUser.role === 'patient'
-    ? currentUser
-    : currentUser && currentUser.role === 'staff'
-      ? getPatientById(patientList, staffRecordForm.patientId) || null
-      : null;
-
-  const patientMedicalCard = (currentUser && currentUser.role === 'patient' ? currentUser : currentPatient) || null;
-
   if (!currentUser) {
     return (
       <div className="app-shell">
@@ -354,14 +226,14 @@ function App() {
                 className={loginMode === 'patient' ? 'selected' : ''}
                 onClick={() => setLoginMode('patient')}
               >
-                Patient
+                👤 Patient
               </button>
               <button
                 type="button"
                 className={loginMode === 'staff' ? 'selected' : ''}
                 onClick={() => setLoginMode('staff')}
               >
-                Staff
+                🏥 Staff
               </button>
             </div>
 
@@ -371,7 +243,7 @@ function App() {
                 <input
                   value={loginForm.username}
                   onChange={(event) => setLoginForm((previous) => ({ ...previous, username: event.target.value }))}
-                  placeholder="Enter username"
+                  placeholder={loginMode === 'patient' ? 'e.g., aisha_demo' : 'e.g., aditi_staff'}
                   aria-label="Username"
                 />
               </label>
@@ -382,103 +254,36 @@ function App() {
                   type="password"
                   value={loginForm.password}
                   onChange={(event) => setLoginForm((previous) => ({ ...previous, password: event.target.value }))}
-                  placeholder="Enter password"
+                  placeholder="Demo@123"
                   aria-label="Password"
                 />
               </label>
 
-              <div className="demo-row" aria-live="polite">
-                <span>Prototype credentials are stored locally only.</span>
-                <button type="button" className="ghost-btn" onClick={() => setToast('Demo credentials are kept internally for testing only')}>
-                  Learn more
-                </button>
-              </div>
-
-              <button className="primary-btn" type="submit">{t('login', 'Log in')}</button>
+              <button className="primary-btn" type="submit">Log In</button>
             </form>
 
-            <div className="divider"><span>or</span></div>
-
-            <form onSubmit={handleRegistration} className="registration-form">
-              <h2>New patient registration</h2>
-              <div className="registration-grid">
-                <label>
-                  Full name
-                  <input value={registrationForm.name} onChange={(event) => setRegistrationForm((previous) => ({ ...previous, name: event.target.value }))} />
-                </label>
-                <label>
-                  Date of birth
-                  <input type="date" value={registrationForm.dob} onChange={(event) => setRegistrationForm((previous) => ({ ...previous, dob: event.target.value }))} />
-                </label>
-                <label>
-                  Gender
-                  <select value={registrationForm.gender} onChange={(event) => setRegistrationForm((previous) => ({ ...previous, gender: event.target.value }))}>
-                    <option>Female</option>
-                    <option>Male</option>
-                    <option>Other</option>
-                    <option>Prefer not to say</option>
-                  </select>
-                </label>
-                <label>
-                  Blood group
-                  <select value={registrationForm.bloodGroup} onChange={(event) => setRegistrationForm((previous) => ({ ...previous, bloodGroup: event.target.value }))}>
-                    <option>O+</option>
-                    <option>O-</option>
-                    <option>A+</option>
-                    <option>A-</option>
-                    <option>B+</option>
-                    <option>B-</option>
-                    <option>AB+</option>
-                    <option>AB-</option>
-                  </select>
-                </label>
-                <label>
-                  Preferred language
-                  <select value={registrationForm.preferredLanguage} onChange={(event) => setRegistrationForm((previous) => ({ ...previous, preferredLanguage: event.target.value }))}>
-                    {LANGUAGE_OPTIONS.map((language) => (
-                      <option key={language.code} value={language.name}>{language.name}</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Phone
-                  <input value={registrationForm.phone} onChange={(event) => setRegistrationForm((previous) => ({ ...previous, phone: event.target.value }))} />
-                </label>
-                <label>
-                  Email
-                  <input type="email" value={registrationForm.email} onChange={(event) => setRegistrationForm((previous) => ({ ...previous, email: event.target.value }))} />
-                </label>
-                <label>
-                  Username
-                  <input value={registrationForm.username} onChange={(event) => setRegistrationForm((previous) => ({ ...previous, username: event.target.value }))} />
-                </label>
-                <label>
-                  Password
-                  <input type="password" value={registrationForm.password} onChange={(event) => setRegistrationForm((previous) => ({ ...previous, password: event.target.value }))} />
-                </label>
-                <label>
-                  Emergency contact
-                  <input value={registrationForm.emergencyContact} onChange={(event) => setRegistrationForm((previous) => ({ ...previous, emergencyContact: event.target.value }))} />
-                </label>
-                <label>
-                  Emergency contact number
-                  <input value={registrationForm.emergencyContactNumber} onChange={(event) => setRegistrationForm((previous) => ({ ...previous, emergencyContactNumber: event.target.value }))} />
-                </label>
-                <label>
-                  Allergies
-                  <input value={registrationForm.allergies} onChange={(event) => setRegistrationForm((previous) => ({ ...previous, allergies: event.target.value }))} />
-                </label>
-                <label>
-                  Chronic conditions
-                  <input value={registrationForm.chronicConditions} onChange={(event) => setRegistrationForm((previous) => ({ ...previous, chronicConditions: event.target.value }))} />
-                </label>
-                <label className="full-width">
-                  Current medications
-                  <input value={registrationForm.currentMedications} onChange={(event) => setRegistrationForm((previous) => ({ ...previous, currentMedications: event.target.value }))} />
-                </label>
-              </div>
-              <button className="primary-btn" type="submit">Create demo medical card</button>
-            </form>
+            <div className="demo-credentials">
+              <h3>Demo Credentials</h3>
+              {loginMode === 'patient' ? (
+                <>
+                  <p><strong>Patients:</strong></p>
+                  <ul>
+                    <li>aisha_demo / Demo@123</li>
+                    <li>rohan_demo / Demo@123</li>
+                    <li>maya_demo / Demo@123</li>
+                  </ul>
+                </>
+              ) : (
+                <>
+                  <p><strong>Staff:</strong></p>
+                  <ul>
+                    <li>aditi_staff / Demo@123</li>
+                    <li>nisha_staff / Demo@123</li>
+                    <li>rohan_staff / Demo@123</li>
+                  </ul>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -487,354 +292,424 @@ function App() {
     );
   }
 
-  const renderPatientDashboard = () => (
-    <div className="dashboard-shell">
-      <header className="topbar">
-        <div>
-          <div className="eyebrow">CareBridge</div>
-          <h2>{t('patientTitle', 'Patient dashboard')}</h2>
+  const selectedHospitalData = HOSPITALS.find((h) => h.id === selectedHospital) || HOSPITALS[0];
+
+  if (currentUser.role === 'staff') {
+    return (
+      <div className="app-shell">
+        <header className="top-header">
+          <div className="header-left">
+            <div className="header-brand">
+              <span className="brand-icon">HB</span>
+              <div>
+                <h1>CareBridge</h1>
+                <p>Care Team Dashboard</p>
+              </div>
+            </div>
+          </div>
+          <div className="header-right">
+            <button className="header-btn" onClick={() => setFontScale((p) => Math.max(p - 0.1, 0.9))}>A-</button>
+            <button className="header-btn" onClick={() => setFontScale((p) => Math.min(p + 0.1, 1.4))}>A+</button>
+            <select
+              value={currentLanguageCode}
+              onChange={(event) => setAppState((previous) => ({ ...previous, language: event.target.value }))}
+              className="header-select"
+            >
+              {LANGUAGE_OPTIONS.map((language) => (
+                <option key={language.code} value={language.code}>{language.name}</option>
+              ))}
+            </select>
+            <button className="header-btn danger" onClick={handleLogout}>Logout</button>
+          </div>
+        </header>
+
+        <div className="dashboard-content">
+          <div className="sidebar">
+            <div className="user-card">
+              <div className="avatar">{displayName.slice(0, 1).toUpperCase()}</div>
+              <div>
+                <h3>{displayName}</h3>
+                <p>Care Staff</p>
+              </div>
+            </div>
+
+            <nav className="nav-menu">
+              <button className={activeTab === 'patients' ? 'active' : ''} onClick={() => setActiveTab('patients')}>
+                📋 Patient Records
+              </button>
+              <button className={activeTab === 'approvals' ? 'active' : ''} onClick={() => setActiveTab('approvals')}>
+                ✓ Access Approvals
+              </button>
+              <button className={activeTab === 'sos' ? 'active' : ''} onClick={() => setActiveTab('sos')}>
+                🚨 SOS Alerts
+              </button>
+            </nav>
+          </div>
+
+          <div className="main-content">
+            {activeTab === 'patients' && (
+              <div className="card">
+                <h2>Patient Records</h2>
+                <div className="table-responsive">
+                  <table className="records-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Blood Group</th>
+                        <th>Allergies</th>
+                        <th>Chronic Conditions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {patientList.map((patient) => (
+                        <tr key={patient.id}>
+                          <td><strong>{patient.fullName}</strong></td>
+                          <td>{patient.bloodGroup}</td>
+                          <td>{patient.allergies?.join(', ') || 'None'}</td>
+                          <td>{patient.chronicConditions?.join(', ') || 'None'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'approvals' && (
+              <div className="card">
+                <h2>Pending Access Requests</h2>
+                {requestList.filter((r) => r.status === 'Pending').length === 0 ? (
+                  <p className="empty-state">No pending requests</p>
+                ) : (
+                  <div className="request-list">
+                    {requestList.filter((r) => r.status === 'Pending').map((request) => (
+                      <div key={request.id} className="request-item">
+                        <div>
+                          <strong>{request.patientName}</strong>
+                          <p>Card: {request.requestedCardId}</p>
+                          <p className="muted">Requested: {formatDate(request.requestedAt)}</p>
+                        </div>
+                        <button className="btn-success">Approve</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'sos' && (
+              <div className="card">
+                <h2>Local SOS Alerts</h2>
+                {sosAlerts.length === 0 ? (
+                  <p className="empty-state">No active alerts</p>
+                ) : (
+                  <div className="sos-list">
+                    {sosAlerts.map((alert) => (
+                      <div key={alert.id} className="sos-item">
+                        <strong>{alert.patientName}</strong>
+                        <p>{alert.text}</p>
+                        <p className="muted">{formatDate(alert.timestamp)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-        <div className="toolbar" aria-label="Accessibility toolbar">
-          <button className="ghost-btn" onClick={() => setFontScale((previous) => Math.min(previous + 0.1, 1.4))}>A+</button>
-          <button className="ghost-btn" onClick={() => setFontScale((previous) => Math.max(previous - 0.1, 0.9))}>A-</button>
-          <select value={currentLanguageCode} onChange={(event) => setAppState((previous) => ({ ...previous, language: event.target.value }))}>
+
+        {toast && <div className="toast">{toast}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="app-shell">
+      <header className="top-header">
+        <div className="header-left">
+          <div className="header-brand">
+            <span className="brand-icon">HB</span>
+            <div>
+              <h1>CareBridge</h1>
+              <p>Patient Portal</p>
+            </div>
+          </div>
+        </div>
+        <div className="header-right">
+          <button className="header-btn" onClick={() => setFontScale((p) => Math.max(p - 0.1, 0.9))}>A-</button>
+          <button className="header-btn" onClick={() => setFontScale((p) => Math.min(p + 0.1, 1.4))}>A+</button>
+          <select
+            value={currentLanguageCode}
+            onChange={(event) => setAppState((previous) => ({ ...previous, language: event.target.value }))}
+            className="header-select"
+          >
             {LANGUAGE_OPTIONS.map((language) => (
               <option key={language.code} value={language.code}>{language.name}</option>
             ))}
           </select>
-          <button className="soft-btn" onClick={() => readAloud(`${displayName}, ${t('patientTitle', 'Patient dashboard')}`, currentLanguageCode)}>
-            {t('readAloud', 'Read aloud')}
-          </button>
-          <button className="danger-btn" type="button" onClick={handleSosActivate}>{t('sos', 'SOS')}</button>
+          <button className="header-btn danger" onClick={handleSosActivate}>🚨 SOS</button>
+          <button className="header-btn" onClick={handleLogout}>Logout</button>
         </div>
       </header>
 
-      <div className="dashboard-grid">
-        <aside className="left-panel">
-          <div className="profile-pill">
-            <div className="avatar" aria-hidden="true">{displayName.slice(0, 1).toUpperCase()}</div>
+      <div className="dashboard-content">
+        <div className="sidebar">
+          <div className="user-card">
+            <div className="avatar">{displayName.slice(0, 1).toUpperCase()}</div>
             <div>
-              <strong>{displayName}</strong>
-              <div className="muted">{currentUser.role === 'patient' ? 'Patient' : 'Care staff'}</div>
+              <h3>{displayName}</h3>
+              <p>{currentUser.bloodGroup} • {currentUser.preferredLanguage}</p>
             </div>
           </div>
 
-          <nav className="side-nav" aria-label="Dashboard navigation">
-            {['overview', 'records', 'appointments', 'chatbot'].map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                className={activeTab === tab ? 'active' : ''}
-                onClick={() => setActiveTab(tab)}
-              >
-                {tab === 'overview' ? 'Overview' : tab === 'records' ? 'Medical card' : tab === 'appointments' ? 'Appointments' : 'Chatbot'}
-              </button>
-            ))}
+          <nav className="nav-menu">
+            <button className={activeTab === 'overview' ? 'active' : ''} onClick={() => setActiveTab('overview')}>
+              📊 Overview
+            </button>
+            <button className={activeTab === 'records' ? 'active' : ''} onClick={() => setActiveTab('records')}>
+              🏥 Medical Card
+            </button>
+            <button className={activeTab === 'hospitals' ? 'active' : ''} onClick={() => setActiveTab('hospitals')}>
+              🏛️ Hospital Records
+            </button>
+            <button className={activeTab === 'appointments' ? 'active' : ''} onClick={() => setActiveTab('appointments')}>
+              📅 Appointments
+            </button>
           </nav>
 
-          <div className="summary-box">
-            <strong>Quick summary</strong>
+          <div className="summary-card">
+            <h4>Summary</h4>
             <ul>
-              <li>{currentUser.allergies?.length || 0} allergies logged</li>
-              <li>{currentUser.chronicConditions?.length || 0} chronic conditions</li>
-              <li>{currentUser.currentMedications?.length || 0} medications</li>
+              <li>🚨 {currentUser.allergies?.length || 0} allergies</li>
+              <li>💊 {currentUser.chronicConditions?.length || 0} conditions</li>
+              <li>💉 {currentUser.currentMedications?.length || 0} medications</li>
             </ul>
           </div>
-        </aside>
+        </div>
 
-        <main className="main-panel">
+        <div className="main-content">
           {activeTab === 'overview' && (
-            <>
-              <div className="summary-grid">
-                <div className="card summary-card">
-                  <div className="card-head">
-                    <h3>{t('medicalCard', 'Medical card')}</h3>
-                    <span className="status-badge success">{currentUser.medicalCard?.status || 'Active'}</span>
-                  </div>
-                  <p>Card ID: {currentUser.medicalCard?.id || 'N/A'}</p>
+            <div className="card">
+              <h2>Patient Overview</h2>
+              <div className="info-grid">
+                <div className="info-item">
+                  <label>Full Name</label>
+                  <p>{currentUser.fullName}</p>
                 </div>
-
-                <div className="card summary-card">
-                  <div className="card-head">
-                    <h3>{t('appointments', 'Appointments')}</h3>
-                    <span className="status-badge info">{appointmentList.filter((item) => item.patientId === currentUser.id).length}</span>
-                  </div>
-                  <p>Upcoming care visits</p>
+                <div className="info-item">
+                  <label>Date of Birth</label>
+                  <p>{formatDate(currentUser.dob)}</p>
                 </div>
-
-                <div className="card summary-card">
-                  <div className="card-head">
-                    <h3>Emergency</h3>
-                    <span className="status-badge alert">{t('noEmergency', 'No emergency service is connected yet.')}</span>
-                  </div>
-                  <p>Use the SOS feature only for local safety checks.</p>
+                <div className="info-item">
+                  <label>Blood Group</label>
+                  <p>{currentUser.bloodGroup}</p>
                 </div>
-              </div>
-
-              <div className="card">
-                <div className="card-head">
-                  <h3>Patient details</h3>
-                  <button className="soft-btn" onClick={() => readAloud(`${currentUser.fullName}, blood group ${currentUser.bloodGroup}, language ${currentUser.preferredLanguage}`, currentLanguageCode)}>
-                    {t('readAloud', 'Read aloud')}
-                  </button>
+                <div className="info-item">
+                  <label>Gender</label>
+                  <p>{currentUser.gender}</p>
                 </div>
-                <div className="meta-grid">
-                  <div><strong>Full name</strong><p>{currentUser.fullName}</p></div>
-                  <div><strong>Date of birth</strong><p>{formatDate(currentUser.dob)}</p></div>
-                  <div><strong>Gender</strong><p>{currentUser.gender}</p></div>
-                  <div><strong>Preferred language</strong><p>{currentUser.preferredLanguage}</p></div>
-                  <div><strong>Emergency contact</strong><p>{currentUser.emergencyContact}</p></div>
-                  <div><strong>Emergency number</strong><p>{currentUser.emergencyContactNumber}</p></div>
+                <div className="info-item">
+                  <label>Emergency Contact</label>
+                  <p>{currentUser.emergencyContact}</p>
+                </div>
+                <div className="info-item">
+                  <label>Emergency Number</label>
+                  <p>{currentUser.emergencyContactNumber}</p>
                 </div>
               </div>
-            </>
+            </div>
           )}
 
           {activeTab === 'records' && (
             <div className="card">
-              <div className="card-head">
-                <h3>Medical card</h3>
-                <button className="soft-btn" onClick={handleAccessRequest}>{t('requestAccess', 'Request access')}</button>
+              <h2>Medical Card</h2>
+
+              <div className="section">
+                <h3>Allergies</h3>
+                <div className="allergy-section">
+                  <div className="allergy-tags">
+                    {(currentUser.allergies || []).length === 0 ? (
+                      <p className="empty-state">No allergies recorded</p>
+                    ) : (
+                      (currentUser.allergies || []).map((allergy) => (
+                        <div key={allergy} className="allergy-tag">
+                          {allergy}
+                          <button
+                            type="button"
+                            className="tag-remove"
+                            onClick={() => handleRemoveAllergy(allergy)}
+                            aria-label={`Remove ${allergy}`}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="add-allergy">
+                    <input
+                      type="text"
+                      value={newAllergyInput}
+                      onChange={(e) => setNewAllergyInput(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && handleAddAllergy()}
+                      placeholder="Type allergy name..."
+                      aria-label="Add new allergy"
+                    />
+                    <button type="button" onClick={handleAddAllergy} className="btn-primary">
+                      ➕ Add
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              <form className="provider-form" onSubmit={handlePatientUpdate}>
-                <label>
-                  Allergies
-                  <input value={currentUser.allergies?.join(', ') || ''} onChange={(event) => setAppState((previous) => ({ ...previous, currentUser: { ...previous.currentUser, allergies: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) } }))} />
-                </label>
-                <label>
-                  Chronic conditions
-                  <input value={currentUser.chronicConditions?.join(', ') || ''} onChange={(event) => setAppState((previous) => ({ ...previous, currentUser: { ...previous.currentUser, chronicConditions: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) } }))} />
-                </label>
-                <label>
-                  Current medications
-                  <input value={currentUser.currentMedications?.join(', ') || ''} onChange={(event) => setAppState((previous) => ({ ...previous, currentUser: { ...previous.currentUser, currentMedications: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) } }))} />
-                </label>
-                <button type="submit" className="primary-btn">Save medical card</button>
-              </form>
+              <div className="section">
+                <h3>Chronic Conditions</h3>
+                <p>{(currentUser.chronicConditions || []).join(', ') || 'None recorded'}</p>
+              </div>
+
+              <div className="section">
+                <h3>Current Medications</h3>
+                <p>{(currentUser.currentMedications || []).join(', ') || 'None recorded'}</p>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'hospitals' && (
+            <div className="card">
+              <h2>Hospital & Clinic Records</h2>
+
+              <label htmlFor="hospital-select" className="label-select">Select Hospital/Clinic:</label>
+              <select
+                id="hospital-select"
+                value={selectedHospital}
+                onChange={(e) => setSelectedHospital(e.target.value)}
+                className="hospital-select"
+              >
+                {HOSPITALS.map((h) => (
+                  <option key={h.id} value={h.id}>{h.name}</option>
+                ))}
+              </select>
+
+              {selectedHospitalData && (
+                <>
+                  <div className="section">
+                    <h3>👨‍⚕️ Doctors at {selectedHospitalData.name}</h3>
+                    {selectedHospitalData.doctors.length === 0 ? (
+                      <p className="empty-state">No doctors recorded</p>
+                    ) : (
+                      <table className="records-table">
+                        <thead>
+                          <tr>
+                            <th>Doctor Name</th>
+                            <th>Specialty</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedHospitalData.doctors.map((doctor) => (
+                            <tr key={doctor.id}>
+                              <td>{doctor.name}</td>
+                              <td>{doctor.specialty}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  <div className="section">
+                    <h3>💉 Vaccinations</h3>
+                    {selectedHospitalData.vaccinations.length === 0 ? (
+                      <p className="empty-state">No vaccinations recorded</p>
+                    ) : (
+                      <table className="records-table">
+                        <thead>
+                          <tr>
+                            <th>Vaccination</th>
+                            <th>Date</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedHospitalData.vaccinations.map((vac) => (
+                            <tr key={vac.id}>
+                              <td>{vac.name}</td>
+                              <td>{formatDate(vac.date)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+
+                  <div className="section">
+                    <h3>🧪 Tests & Results</h3>
+                    {selectedHospitalData.tests.length === 0 ? (
+                      <p className="empty-state">No tests recorded</p>
+                    ) : (
+                      <table className="records-table">
+                        <thead>
+                          <tr>
+                            <th>Test Name</th>
+                            <th>Date</th>
+                            <th>Result</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedHospitalData.tests.map((test) => (
+                            <tr key={test.id}>
+                              <td>{test.name}</td>
+                              <td>{formatDate(test.date)}</td>
+                              <td className="result-success">{test.result}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
           {activeTab === 'appointments' && (
             <div className="card">
-              <div className="card-head">
-                <h3>{t('appointments', 'Appointments')}</h3>
-              </div>
-              <ul className="appointments-list">
-                {appointmentList.filter((item) => item.patientId === currentUser.id).map((appointment) => (
-                  <li key={appointment.id}>
-                    <strong>{appointment.doctorName}</strong>
-                    <span>{appointment.specialty}</span>
-                    <span>{formatDate(appointment.date)} • {appointment.time}</span>
-                    <span className="status-badge success">{appointment.status}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {activeTab === 'chatbot' && (
-            <div className="card">
-              <div className="card-head">
-                <h3>{t('chatbot', 'Medical research chat')}</h3>
-                <select value={chatTopic} onChange={(event) => setChatTopic(event.target.value)}>
-                  <option>Allergies</option>
-                  <option>Diabetes</option>
-                  <option>Vaccination</option>
-                  <option>Cardiovascular</option>
-                </select>
-              </div>
-
-              <div className="chat-box" aria-live="polite">
-                {(appState.chatHistory || []).length === 0 && (
-                  <div className="chat-bubble bot">
-                    This demo chatbot provides general educational information only and does not replace professional medical care.
-                  </div>
-                )}
-                {(appState.chatHistory || []).map((message) => (
-                  <div key={message.id} className={`chat-bubble ${message.speaker === 'user' ? 'user' : 'bot'}`}>
-                    {message.text}
-                  </div>
-                ))}
-              </div>
-
-              <form className="chat-actions" onSubmit={handleChatSubmit}>
-                <input value={chatInput} onChange={(event) => setChatInput(event.target.value)} placeholder="Ask about symptoms, treatment, or patient education" aria-label="Ask the medical research chatbot" />
-                <button className="primary-btn" type="submit">Send</button>
-              </form>
-            </div>
-          )}
-        </main>
-      </div>
-
-      {toast && <div className="toast" role="status" aria-live="polite">{toast}</div>}
-      {sosActive && (
-        <div className="sos-overlay" role="alertdialog" aria-live="assertive" aria-modal="true">
-          <div className="sos-card">
-            <div className="eyebrow">Emergency local alert</div>
-            <h2>Local SOS active</h2>
-            <p>No emergency service is connected yet.</p>
-            <div className="sos-timer" aria-live="polite">{sosTimer}s</div>
-            <button className="safe-btn" onClick={handleSafe}>{t('iAmSafe', 'I AM SAFE')}</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-
-  const renderStaffDashboard = () => (
-    <div className="dashboard-shell">
-      <header className="topbar">
-        <div>
-          <div className="eyebrow">Care team</div>
-          <h2>{t('staffTitle', 'Care team dashboard')}</h2>
-        </div>
-        <div className="toolbar">
-          <button className="ghost-btn" onClick={() => setFontScale((previous) => Math.min(previous + 0.1, 1.4))}>A+</button>
-          <button className="ghost-btn" onClick={() => setFontScale((previous) => Math.max(previous - 0.1, 0.9))}>A-</button>
-          <select value={currentLanguageCode} onChange={(event) => setAppState((previous) => ({ ...previous, language: event.target.value }))}>
-            {LANGUAGE_OPTIONS.map((language) => (
-              <option key={language.code} value={language.code}>{language.name}</option>
-            ))}
-          </select>
-          <button className="danger-btn" type="button" onClick={handleSosActivate}>SOS</button>
-        </div>
-      </header>
-
-      <div className="dashboard-grid">
-        <aside className="left-panel">
-          <div className="profile-pill">
-            <div className="avatar" aria-hidden="true">{(currentUser.name || currentUser.fullName || 'C').slice(0, 1).toUpperCase()}</div>
-            <div>
-              <strong>{currentUser.name || currentUser.fullName}</strong>
-              <div className="muted">{currentUser.role}</div>
-            </div>
-          </div>
-
-          <div className="summary-box">
-            <strong>Provider summary</strong>
-            <ul>
-              <li>{summary.activePatients} patients</li>
-              <li>{summary.pendingAppointments} pending appointments</li>
-              <li>{summary.pendingAccess} access requests</li>
-            </ul>
-          </div>
-        </aside>
-
-        <main className="main-panel">
-          <div className="summary-grid">
-            <div className="card summary-card">
-              <div className="card-head">
-                <h3>Patients</h3>
-                <span className="status-badge success">{summary.activePatients}</span>
-              </div>
-              <p>{patientList.length} active records</p>
-            </div>
-
-            <div className="card summary-card">
-              <div className="card-head">
-                <h3>Pending approvals</h3>
-                <span className="status-badge warning">{summary.pendingAccess}</span>
-              </div>
-              <p>Access to medical cards</p>
-            </div>
-
-            <div className="card summary-card">
-              <div className="card-head">
-                <h3>SOS alerts</h3>
-                <span className="status-badge alert">{sosAlerts.length}</span>
-              </div>
-              <p>Local safety notifications only</p>
-            </div>
-          </div>
-
-          <div className="card">
-            <div className="card-head">
-              <h3>Update patient record</h3>
-            </div>
-            <form className="provider-form" onSubmit={handleStaffRecordUpdate}>
-              <label>
-                Patient
-                <select value={staffRecordForm.patientId} onChange={(event) => setStaffRecordForm((previous) => ({ ...previous, patientId: event.target.value }))}>
-                  <option value="">Select patient</option>
-                  {patientList.map((patient) => (
-                    <option key={patient.id} value={patient.id}>{patient.fullName}</option>
+              <h2>Your Appointments</h2>
+              {appointmentList.filter((a) => a.patientId === currentUser.id).length === 0 ? (
+                <p className="empty-state">No appointments scheduled</p>
+              ) : (
+                <div className="appointments-list">
+                  {appointmentList.filter((a) => a.patientId === currentUser.id).map((apt) => (
+                    <div key={apt.id} className="appointment-item">
+                      <div className="apt-time">{apt.time}</div>
+                      <div className="apt-details">
+                        <strong>{apt.doctorName}</strong>
+                        <p>{apt.specialty}</p>
+                        <p className="muted">{formatDate(apt.date)}</p>
+                      </div>
+                      <span className={`status ${apt.status.toLowerCase()}`}>{apt.status}</span>
+                    </div>
                   ))}
-                </select>
-              </label>
-              <label>
-                Allergies
-                <input value={staffRecordForm.allergies} onChange={(event) => setStaffRecordForm((previous) => ({ ...previous, allergies: event.target.value }))} placeholder="Penicillin, Shellfish" />
-              </label>
-              <label>
-                Chronic conditions
-                <input value={staffRecordForm.chronicConditions} onChange={(event) => setStaffRecordForm((previous) => ({ ...previous, chronicConditions: event.target.value }))} placeholder="Asthma, Hypertension" />
-              </label>
-              <label>
-                Current medications
-                <input value={staffRecordForm.currentMedications} onChange={(event) => setStaffRecordForm((previous) => ({ ...previous, currentMedications: event.target.value }))} placeholder="Metformin, Salbutamol" />
-              </label>
-              <label>
-                Clinical note
-                <textarea value={staffRecordForm.notes} onChange={(event) => setStaffRecordForm((previous) => ({ ...previous, notes: event.target.value }))} rows={4} />
-              </label>
-              <button type="submit" className="primary-btn">{t('updateSuccessful', 'Update successful')}</button>
-            </form>
-          </div>
-
-          <div className="card">
-            <div className="card-head">
-              <h3>Pending medical card access</h3>
+                </div>
+              )}
             </div>
-            <ul className="request-list">
-              {requestList.filter((request) => request.status === 'Pending').length === 0 && <li>No pending access requests.</li>}
-              {requestList.filter((request) => request.status === 'Pending').map((request) => (
-                <li key={request.id}>
-                  <strong>{request.patientName}</strong>
-                  <span>{request.requestedCardId}</span>
-                  <span>{formatDate(request.requestedAt)}</span>
-                  <button className="primary-btn" onClick={() => handleApproveRequest(request.id)}>Approve</button>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="card">
-            <div className="card-head">
-              <h3>Hospital SOS alerts</h3>
-            </div>
-            <ul className="request-list">
-              {sosAlerts.length === 0 && <li>No local alerts yet.</li>}
-              {sosAlerts.map((alert) => (
-                <li key={alert.id}>
-                  <strong>{alert.patientName}</strong>
-                  <span>{alert.text}</span>
-                  <span>{formatDate(alert.timestamp)}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </main>
+          )}
+        </div>
       </div>
 
-      {toast && <div className="toast" role="status" aria-live="polite">{toast}</div>}
+      {toast && <div className="toast">{toast}</div>}
+
       {sosActive && (
-        <div className="sos-overlay" role="alertdialog" aria-live="assertive" aria-modal="true">
+        <div className="sos-overlay" role="alertdialog" aria-modal="true">
           <div className="sos-card">
-            <div className="eyebrow">Emergency local alert</div>
-            <h2>Local SOS active</h2>
+            <h2>🚨 Local SOS Active</h2>
             <p>No emergency service is connected yet.</p>
-            <div className="sos-timer" aria-live="polite">{sosTimer}s</div>
-            <button className="safe-btn" onClick={handleSafe}>{t('iAmSafe', 'I AM SAFE')}</button>
+            <div className="sos-timer">{sosTimer}s</div>
+            <button className="btn-success" onClick={handleSafe}>✓ I AM SAFE</button>
           </div>
         </div>
       )}
     </div>
   );
-
-  return currentUser && currentUser.role === 'staff' ? renderStaffDashboard() : renderPatientDashboard();
 }
 
 export default App;
-
-
